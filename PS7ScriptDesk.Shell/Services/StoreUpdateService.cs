@@ -10,10 +10,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using PS7ScriptDesk.Application.Diagnostics;
 using PS7ScriptDesk.Application.Utilities;
 using Windows.ApplicationModel;
 using Windows.Services.Store;
+using WinRT.Interop;
 
 namespace PS7ScriptDesk.Shell.Services
 {
@@ -22,16 +24,21 @@ namespace PS7ScriptDesk.Shell.Services
         private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(30);
         private readonly IStorePackageEnvironmentProvider _packageEnvironmentProvider;
         private readonly IStoreUpdateQuery _storeUpdateQuery;
+        private readonly IStoreUpdateInstallAdapter _storeUpdateInstallAdapter;
 
         public StoreUpdateService()
-            : this(new WindowsStorePackageEnvironmentProvider(), new DirectStoreUpdateQuery())
+            : this(new WindowsStorePackageEnvironmentProvider(), new DirectStoreUpdateQuery(), new DirectStoreUpdateInstallAdapter())
         {
         }
 
-        internal StoreUpdateService(IStorePackageEnvironmentProvider packageEnvironmentProvider, IStoreUpdateQuery storeUpdateQuery)
+        internal StoreUpdateService(
+            IStorePackageEnvironmentProvider packageEnvironmentProvider,
+            IStoreUpdateQuery storeUpdateQuery,
+            IStoreUpdateInstallAdapter? storeUpdateInstallAdapter = null)
         {
             _packageEnvironmentProvider = packageEnvironmentProvider ?? throw new ArgumentNullException(nameof(packageEnvironmentProvider));
             _storeUpdateQuery = storeUpdateQuery ?? throw new ArgumentNullException(nameof(storeUpdateQuery));
+            _storeUpdateInstallAdapter = storeUpdateInstallAdapter ?? new DirectStoreUpdateInstallAdapter();
         }
 
         public async Task<StoreUpdateCheckResult> CheckForUpdatesAsync(CancellationToken cancellationToken)
@@ -226,6 +233,7 @@ namespace PS7ScriptDesk.Shell.Services
 
         public async Task<StoreUpdateInstallResult> RequestInstallAsync(
             StoreUpdateCheckResult checkResult,
+            IntPtr ownerHwnd,
             IProgress<StoreUpdateInstallProgressInfo>? progress,
             CancellationToken cancellationToken)
         {
@@ -243,8 +251,34 @@ namespace PS7ScriptDesk.Shell.Services
 
             try
             {
-                if (checkResult.RawStoreContext is not StoreContext storeContext ||
-                    checkResult.RawUpdatesCollection is not IReadOnlyList<StorePackageUpdate> rawUpdates)
+                var dispatcherCheckAccess = Dispatcher.FromThread(Thread.CurrentThread)?.CheckAccess() ?? false;
+                var apartmentState = Thread.CurrentThread.GetApartmentState();
+                LogCheckStep(
+                    "Preparing interactive Store update install request.",
+                    new Dictionary<string, object?>
+                    {
+                        ["managedThreadId"] = Environment.CurrentManagedThreadId,
+                        ["apartmentState"] = apartmentState.ToString(),
+                        ["dispatcherCheckAccess"] = dispatcherCheckAccess,
+                        ["ownerHwnd"] = ownerHwnd.ToInt64(),
+                        ["ownerHwndNonZero"] = ownerHwnd != IntPtr.Zero
+                    });
+
+                if (ownerHwnd == IntPtr.Zero)
+                {
+                    result.ExceptionSummary = "Microsoft Store update install could not start because the ScriptDesk owner window has no valid HWND.";
+                    LogCheckStep(result.ExceptionSummary);
+                    return result;
+                }
+
+                if (apartmentState != ApartmentState.STA || !dispatcherCheckAccess)
+                {
+                    result.ExceptionSummary = "Microsoft Store update install could not start because it was not invoked on the owning WPF UI STA dispatcher.";
+                    LogCheckStep(result.ExceptionSummary);
+                    return result;
+                }
+
+                if (checkResult.RawStoreContext is null || checkResult.RawUpdatesCollection is null)
                 {
                     result.ExceptionSummary = "Store update install could not start because no direct Store update context was available.";
                     LogCheckStep(result.ExceptionSummary);
@@ -253,67 +287,45 @@ namespace PS7ScriptDesk.Shell.Services
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                result.RequestStarted = true;
                 LogCheckStep(
-                    "Calling direct RequestDownloadAndInstallStorePackageUpdatesAsync.",
+                    "Initializing interactive StoreContext with the stable ScriptDesk owner HWND.",
                     new Dictionary<string, object?>
                     {
-                        ["updateCount"] = checkResult.UpdateCount,
-                        ["packageFamilyNames"] = string.Join(", ", checkResult.Updates.Select(update => update.PackageFamilyName))
+                        ["ownerHwnd"] = ownerHwnd.ToInt64()
                     });
 
-                // Microsoft requires this API to be initiated from the UI thread.
-                // StoreUpdateWindow invokes this method from its WPF click handler.
-                var operation = storeContext.RequestDownloadAndInstallStorePackageUpdatesAsync(rawUpdates);
-                operation.Progress = (_, status) =>
+                var attempt = await _storeUpdateInstallAdapter.RequestAsync(
+                    checkResult.RawStoreContext,
+                    checkResult.RawUpdatesCollection,
+                    ownerHwnd,
+                    progress,
+                    cancellationToken);
+                result.RequestStarted = attempt.RequestInvoked;
+                result.StoreContextInitialized = attempt.StoreContextInitialized;
+                result.PackageStatuses = attempt.PackageStatuses.ToList();
+                result.OverallState = attempt.OverallState;
+                result.PartialStartDetected = attempt.Exception is not null && attempt.PackageStatuses.Count > 0;
+
+                if (attempt.Exception is not null)
                 {
-                    try
-                    {
-                        progress?.Report(new StoreUpdateInstallProgressInfo(
-                            status.PackageFamilyName,
-                            status.PackageUpdateState.ToString(),
-                            status.PackageDownloadProgress.ToString("P0"),
-                            $"Total={status.TotalDownloadProgress:P0}",
-                            string.Empty,
-                            "Started"));
-                    }
-                    catch (Exception progressException)
-                    {
-                        LogCheckException("Store update progress reporting failed.", progressException);
-                    }
-                };
-
-                var installResult = await operation;
-                result.OverallState = installResult.OverallState.ToString();
-                result.PackageStatuses = installResult.StorePackageUpdateStatuses
-                    .Select(status => new StoreUpdateInstallStatusInfo(
-                        status.PackageFamilyName,
-                        status.PackageUpdateState.ToString(),
-                        status.PackageDownloadProgress.ToString("P0"),
-                        $"Total={status.TotalDownloadProgress:P0}",
-                        string.Empty,
-                        string.Empty,
-                        string.Empty,
-                        string.Empty))
-                    .ToList();
-
-                LogCheckStep(
-                    "Direct Store update install request completed.",
-                    new Dictionary<string, object?> { ["overallState"] = result.OverallState });
-
-                foreach (var status in result.PackageStatuses)
-                {
-                    LogCheckStep(
-                        "Per-package Store update install status.",
-                        new Dictionary<string, object?>
-                        {
-                            ["packageFamilyName"] = status.PackageFamilyName,
-                            ["status"] = status.Status,
-                            ["packageUpdateState"] = status.PackageUpdateState,
-                            ["downloadProgress"] = status.PackageDownloadProgress
-                        });
+                    result.ExceptionSummary = BuildExceptionSummary(attempt.Exception);
+                    LogCheckException(
+                        result.PartialStartDetected
+                            ? "Store update install reported an exception after observable Store progress; preserving the partial operation state."
+                            : "Store update install request failed before observable Store progress.",
+                        attempt.Exception);
                 }
 
+                LogCheckStep(
+                    "Interactive Store update install request finished with observed state.",
+                    new Dictionary<string, object?>
+                    {
+                        ["requestStarted"] = result.RequestStarted,
+                        ["storeContextInitialized"] = result.StoreContextInitialized,
+                        ["partialStartDetected"] = result.PartialStartDetected,
+                        ["overallState"] = result.OverallState,
+                        ["packageStatusCount"] = result.PackageStatuses.Count
+                    });
                 return result;
             }
             catch (OperationCanceledException ex)
@@ -342,6 +354,137 @@ namespace PS7ScriptDesk.Shell.Services
                         ["packageStatusCount"] = result.PackageStatuses.Count,
                         ["exceptionSummary"] = result.ExceptionSummary
                     });
+            }
+        }
+
+        internal interface IStoreUpdateInstallAdapter
+        {
+            Task<StoreUpdateInstallAttempt> RequestAsync(
+                object rawStoreContext,
+                object rawUpdatesCollection,
+                IntPtr ownerHwnd,
+                IProgress<StoreUpdateInstallProgressInfo>? progress,
+                CancellationToken cancellationToken);
+        }
+
+        internal sealed class StoreUpdateInstallAttempt
+        {
+            public bool RequestInvoked { get; init; }
+
+            public bool StoreContextInitialized { get; init; }
+
+            public string OverallState { get; init; } = string.Empty;
+
+            public IReadOnlyList<StoreUpdateInstallStatusInfo> PackageStatuses { get; init; } = Array.Empty<StoreUpdateInstallStatusInfo>();
+
+            public Exception? Exception { get; init; }
+        }
+
+        private sealed class DirectStoreUpdateInstallAdapter : IStoreUpdateInstallAdapter
+        {
+            public async Task<StoreUpdateInstallAttempt> RequestAsync(
+                object rawStoreContext,
+                object rawUpdatesCollection,
+                IntPtr ownerHwnd,
+                IProgress<StoreUpdateInstallProgressInfo>? progress,
+                CancellationToken cancellationToken)
+            {
+                if (rawStoreContext is not StoreContext storeContext ||
+                    rawUpdatesCollection is not IReadOnlyList<StorePackageUpdate> rawUpdates)
+                {
+                    return new StoreUpdateInstallAttempt
+                    {
+                        Exception = new InvalidOperationException("The Store update query did not provide a usable StoreContext and update collection.")
+                    };
+                }
+
+                var statuses = new List<StoreUpdateInstallStatusInfo>();
+                var statusesGate = new object();
+                var storeContextInitialized = false;
+                var requestInvoked = false;
+                try
+                {
+                    InitializeWithWindow.Initialize(storeContext, ownerHwnd);
+                    storeContextInitialized = true;
+                    LogCheckStep("Interactive StoreContext initialization succeeded.");
+
+                    cancellationToken.ThrowIfCancellationRequested();
+                    LogCheckStep(
+                        "Calling direct RequestDownloadAndInstallStorePackageUpdatesAsync.",
+                        new Dictionary<string, object?>
+                        {
+                            ["updateCount"] = rawUpdates.Count,
+                            ["packageFamilyNames"] = string.Join(", ", rawUpdates.Select(update => update.Package?.Id?.FamilyName ?? string.Empty))
+                        });
+
+                    var operation = storeContext.RequestDownloadAndInstallStorePackageUpdatesAsync(rawUpdates);
+                    requestInvoked = true;
+                    operation.Progress = (_, status) =>
+                    {
+                        var mappedStatus = ToInstallStatus(status, "Progress");
+                        lock (statusesGate)
+                        {
+                            statuses.Add(mappedStatus);
+                        }
+                        try
+                        {
+                            progress?.Report(new StoreUpdateInstallProgressInfo(
+                                mappedStatus.PackageFamilyName,
+                                mappedStatus.PackageUpdateState,
+                                mappedStatus.PackageDownloadProgress,
+                                mappedStatus.Status,
+                                mappedStatus.ErrorCode,
+                                "Progress"));
+                        }
+                        catch (Exception progressException)
+                        {
+                            LogCheckException("Store update progress reporting failed.", progressException);
+                        }
+                    };
+
+                    var installResult = await operation;
+                    var completedStatuses = installResult.StorePackageUpdateStatuses
+                        .Select(status => ToInstallStatus(status, "Completed"))
+                        .ToList();
+                    return new StoreUpdateInstallAttempt
+                    {
+                        RequestInvoked = true,
+                        StoreContextInitialized = storeContextInitialized,
+                        OverallState = installResult.OverallState.ToString(),
+                        PackageStatuses = completedStatuses.Count > 0 ? completedStatuses : SnapshotStatuses(statuses, statusesGate)
+                    };
+                }
+                catch (Exception ex)
+                {
+                    return new StoreUpdateInstallAttempt
+                    {
+                        RequestInvoked = requestInvoked,
+                        StoreContextInitialized = storeContextInitialized,
+                        PackageStatuses = SnapshotStatuses(statuses, statusesGate),
+                        Exception = ex
+                    };
+                }
+            }
+
+            private static StoreUpdateInstallStatusInfo ToInstallStatus(StorePackageUpdateStatus status, string statusKind)
+                => new(
+                    status.PackageFamilyName,
+                    status.PackageUpdateState.ToString(),
+                    status.PackageDownloadProgress.ToString("P0"),
+                    $"Total={status.TotalDownloadProgress:P0}",
+                    string.Empty,
+                    statusKind,
+                    string.Empty,
+                    string.Empty);
+
+            private static IReadOnlyList<StoreUpdateInstallStatusInfo> SnapshotStatuses(
+                List<StoreUpdateInstallStatusInfo> statuses,
+                object statusesGate)
+            {
+                lock (statusesGate)
+                {
+                    return statuses.ToList();
+                }
             }
         }
 
@@ -1276,6 +1419,10 @@ namespace PS7ScriptDesk.Shell.Services
     public sealed class StoreUpdateInstallResult
     {
         public bool RequestStarted { get; set; }
+
+        public bool StoreContextInitialized { get; set; }
+
+        public bool PartialStartDetected { get; set; }
 
         public string OverallState { get; set; } = string.Empty;
 

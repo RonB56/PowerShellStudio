@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using PS7ScriptDesk.Application.Diagnostics;
 using PS7ScriptDesk.Application.Utilities;
 using PS7ScriptDesk.Shell.Services;
@@ -19,6 +20,7 @@ namespace PS7ScriptDesk.Shell
         private readonly StoreUpdateCheckResult _checkResult;
         private readonly bool _isMandatory;
         private bool _installInProgress;
+        private bool _installRequestAccepted;
 
         public StoreUpdateWindow(StoreUpdateService storeUpdateService, StoreUpdateCheckResult checkResult, bool isMandatory)
         {
@@ -256,8 +258,29 @@ namespace PS7ScriptDesk.Shell
 
             try
             {
-                var installResult = await _storeUpdateService.RequestInstallAsync(_checkResult, progress, CancellationToken.None).ConfigureAwait(true);
+                var ownerWindow = Owner is { IsLoaded: true } ? Owner : this;
+                var ownerHwnd = new WindowInteropHelper(ownerWindow).Handle;
+                DeveloperDiagnostics.LogInfo(
+                    "StoreUpdate",
+                    "Preparing Store install from the stable ScriptDesk owner window.",
+                    new Dictionary<string, object?>
+                    {
+                        ["ownerWindowType"] = ownerWindow.GetType().Name,
+                        ["ownerIsLoaded"] = ownerWindow.IsLoaded,
+                        ["ownerHwnd"] = ownerHwnd.ToInt64(),
+                        ["ownerHwndNonZero"] = ownerHwnd != IntPtr.Zero,
+                        ["dispatcherCheckAccess"] = Dispatcher.CheckAccess(),
+                        ["managedThreadId"] = Environment.CurrentManagedThreadId,
+                        ["apartmentState"] = Thread.CurrentThread.GetApartmentState().ToString()
+                    });
+
+                var installResult = await _storeUpdateService.RequestInstallAsync(_checkResult, ownerHwnd, progress, CancellationToken.None).ConfigureAwait(true);
+                _installRequestAccepted = installResult.RequestStarted;
                 var statusLines = new List<string>();
+                if (installResult.PartialStartDetected)
+                {
+                    statusLines.Add("Microsoft Store accepted the update request and reported package progress before the request returned an error. The existing Store operation was not retried.");
+                }
                 if (!string.IsNullOrWhiteSpace(installResult.OverallState))
                 {
                     statusLines.Add($"Overall state: {installResult.OverallState}");
@@ -282,7 +305,7 @@ namespace PS7ScriptDesk.Shell
             finally
             {
                 _installInProgress = false;
-                InstallNowButton.IsEnabled = _checkResult.HasConfirmedInstallableUpdate;
+                InstallNowButton.IsEnabled = _checkResult.HasConfirmedInstallableUpdate && !_installRequestAccepted;
             }
         }
 
