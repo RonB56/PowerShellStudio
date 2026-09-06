@@ -898,6 +898,18 @@ public class MainWindowViewModel : INotifyPropertyChanged, IDisposable
 
         public bool IsRunAvailable => CanRunScript();
 
+        public string? RunDisabledReason => GetRunDisabledReason();
+
+        public string? RunSelectionDisabledReason => GetRunDisabledReason(runSelection: true);
+
+        public bool IsConsoleInputActive =>
+            _interactiveTerminalCoordinator.State == InteractiveTerminalState.InteractiveInputEditing;
+
+        public string ConsoleInputStatusText =>
+            IsConsoleInputActive
+                ? "Console input active — Run commands paused. Press Ctrl+C to cancel."
+                : string.Empty;
+
         public string InteractiveTerminalCoordinatorInstanceId => _interactiveTerminalCoordinator.InstanceId;
 
         public InteractiveTerminalState InteractiveTerminalCoordinatorState => _interactiveTerminalCoordinator.State;
@@ -1356,7 +1368,16 @@ public class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             try
             {
                 var inputClass = TerminalInputClassifier.Classify(data);
-                if (TerminalInputClassifier.EstablishesUserEditOwnership(inputClass))
+                if (string.Equals(inputClass, "CtrlC", StringComparison.Ordinal))
+                {
+                    _interactiveTerminalCoordinator.SetState(
+                        InteractiveTerminalState.InteractiveCommandRunning,
+                        "Ctrl+C cancelled console input; waiting for the backend prompt.");
+                    _terminalOutputMultiplexer.SetInteractiveState(
+                        InteractiveTerminalState.InteractiveCommandRunning,
+                        "Ctrl+C cancelled console input; waiting for the backend prompt.");
+                }
+                else if (TerminalInputClassifier.EstablishesUserEditOwnership(inputClass))
                 {
                     var inputState = data.Contains('\r') || data.Contains('\n')
                         ? InteractiveTerminalState.InteractiveCommandRunning
@@ -6522,9 +6543,71 @@ public class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             return canRun;
         }
 
+        private string? GetRunDisabledReason(bool runSelection = false)
+        {
+            if (CanRunScript())
+            {
+                return null;
+            }
+
+            var terminalState = _interactiveTerminalCoordinator.State;
+            if (terminalState == InteractiveTerminalState.InteractiveInputEditing)
+            {
+                return runSelection
+                    ? "Unavailable while a command is being edited in the Console. Press Ctrl+C to cancel the console input and enable Run Selection."
+                    : "Unavailable while a command is being edited in the Console. Press Ctrl+C to cancel the console input and enable Run.";
+            }
+
+            if (terminalState != InteractiveTerminalState.InteractiveIdleAtPrompt)
+            {
+                return EditorExecutionAdmissionPolicy.ExplainRejection(terminalState);
+            }
+
+            if (SelectedTab is null)
+            {
+                return runSelection ? "Run Selection is unavailable because no editor document is active." : "Run is unavailable because no editor document is active.";
+            }
+
+            if (_preferredRuntimeItem is null && SelectedRuntimeItem is null)
+            {
+                return "Run is unavailable because no PowerShell 7 runtime is available.";
+            }
+
+            if (IsDebugSessionActive)
+            {
+                return "Editor execution is unavailable while a debug session is active.";
+            }
+
+            if (IsExecutionRunning || _liveConsoleService.IsCommandInProgress)
+            {
+                return "Editor execution is unavailable while another command is running.";
+            }
+
+            if (IsStopInProgress)
+            {
+                return "Editor execution is unavailable while the terminal is stopping.";
+            }
+
+            if (IsRuntimeDiscoveryInProgress)
+            {
+                return "Editor execution is unavailable while PowerShell runtime discovery is in progress.";
+            }
+
+            return runSelection
+                ? "Run Selection is unavailable in the current application state."
+                : "Run is unavailable in the current application state.";
+        }
+
         private void OnInteractiveTerminalStateChanged(object? sender, EventArgs e)
         {
-            PostToUi(RefreshCommandStates);
+            PostToUi(() =>
+            {
+                RefreshCommandStates();
+                OnPropertyChanged(nameof(RunDisabledReason));
+                OnPropertyChanged(nameof(RunSelectionDisabledReason));
+                OnPropertyChanged(nameof(IsConsoleInputActive));
+                OnPropertyChanged(nameof(ConsoleInputStatusText));
+            });
         }
 
         private void LogForensicRunAdmission(string eventName)
@@ -6618,6 +6701,10 @@ public class MainWindowViewModel : INotifyPropertyChanged, IDisposable
             _exportAsExeCommand.RaiseCanExecuteChanged();
             _publishRestApiCommand.RaiseCanExecuteChanged();
             OnPropertyChanged(nameof(IsRunAvailable));
+            OnPropertyChanged(nameof(RunDisabledReason));
+            OnPropertyChanged(nameof(RunSelectionDisabledReason));
+            OnPropertyChanged(nameof(IsConsoleInputActive));
+            OnPropertyChanged(nameof(ConsoleInputStatusText));
         }
 
         private static string GetApplicationVersionText()

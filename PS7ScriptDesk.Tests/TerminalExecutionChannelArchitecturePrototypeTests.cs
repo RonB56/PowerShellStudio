@@ -69,7 +69,9 @@ public sealed class TerminalExecutionChannelArchitecturePrototypeTests
         var root = FindRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(root, "PS7ScriptDesk.PowerShell", "Services", "LiveConsoleService.cs"));
 
-        Assert.Contains("WriteTerminalInputAsync(scriptCommand, sessionGeneration, cancellationToken)", source, StringComparison.Ordinal);
+        Assert.Contains("await WriteTerminalInputAsync(", source, StringComparison.Ordinal);
+        Assert.Contains("scriptCommand", source, StringComparison.Ordinal);
+        Assert.Contains("TerminalInputOrigin.InternalDispatch", source, StringComparison.Ordinal);
         Assert.Contains("BuildScriptDispatchCommand", source, StringComparison.Ordinal);
         Assert.Contains("##PSSTUDIO_EXEC_START_", source, StringComparison.Ordinal);
     }

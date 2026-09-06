@@ -55,6 +55,12 @@ namespace PS7ScriptDesk.Shell.Help
             typeof(ContextHelp),
             new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.Inherits, OnKeyChanged));
 
+        public static readonly DependencyProperty PreserveToolTipProperty = DependencyProperty.RegisterAttached(
+            "PreserveToolTip",
+            typeof(bool),
+            typeof(ContextHelp),
+            new FrameworkPropertyMetadata(false));
+
         public static bool IsEnabled => _isEnabled;
 
         public static void SetEnabled(bool enabled)
@@ -111,6 +117,16 @@ namespace PS7ScriptDesk.Shell.Help
         public static string? GetKey(DependencyObject element)
         {
             return (string?)element.GetValue(KeyProperty);
+        }
+
+        public static void SetPreserveToolTip(DependencyObject element, bool value)
+        {
+            element.SetValue(PreserveToolTipProperty, value);
+        }
+
+        public static bool GetPreserveToolTip(DependencyObject element)
+        {
+            return (bool)element.GetValue(PreserveToolTipProperty);
         }
 
         public static void OpenOverview(Window owner)
@@ -254,14 +270,20 @@ namespace PS7ScriptDesk.Shell.Help
 
             var key = ResolveHelpKey(element);
             var topic = HelpTopicCatalog.Get(key, $"ContextHelp.ApplyHelp ({element.GetType().Name})");
-            element.ToolTip = BuildQuickHelpTooltip(topic);
+            if (!GetPreserveToolTip(element))
+            {
+                element.ToolTip = BuildQuickHelpTooltip(topic);
+            }
             ToolTipService.SetShowOnDisabled(element, true);
             EnsureContextMenuHelpItem(element, key);
         }
 
         private static void SuppressHelp(FrameworkElement element)
         {
-            RestoreOriginalToolTip(element);
+            if (!GetPreserveToolTip(element))
+            {
+                RestoreOriginalToolTip(element);
+            }
             RestoreOriginalShowOnDisabled(element);
             RemoveContextMenuHelpItem(element);
         }

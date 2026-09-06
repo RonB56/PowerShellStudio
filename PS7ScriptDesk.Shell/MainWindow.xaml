@@ -394,7 +394,7 @@
         </Menu>
 
         <ToolBarTray DockPanel.Dock="Top" help:ContextHelp.Key="App.Overview">
-            <ToolBar>
+            <ToolBar x:Name="MainToolbar">
                 <!-- File/document group -->
                 <Button Command="{Binding NewScriptCommand}"
                         help:ContextHelp.Key="Command.NewScript"
@@ -479,11 +479,18 @@
                 <Separator Style="{StaticResource IdeToolbarSeparatorStyle}" />
 
                 <!-- Run group -->
+                <Grid x:Name="RunTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      help:ContextHelp.PreserveToolTip="True"
+                      ToolTip="{Binding RunDisabledReason, TargetNullValue='Run Script (Ctrl+F5)'}">
                 <Button x:Name="RunButton" Click="RunScript_Click"
                         help:ContextHelp.Key="Command.RunScript"
+                        help:ContextHelp.PreserveToolTip="True"
                         IsEnabled="{Binding IsRunAvailable}"
+                        AutomationProperties.HelpText="{Binding RunDisabledReason}"
+                        ToolTipService.ShowOnDisabled="True"
                         Style="{StaticResource IdeToolbarPrimaryButtonStyle}"
-                        ToolTip="Run Script (Ctrl+F5)">
+                        >
                     <StackPanel Orientation="Horizontal">
                         <Viewbox Style="{StaticResource ToolbarIconViewboxStyle}">
                             <Path Data="M 3,2 L 14,8 L 3,14 Z"
@@ -492,12 +499,20 @@
                         <TextBlock Text="Run" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                </Grid>
 
+                <Grid x:Name="RunSelectionTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      help:ContextHelp.PreserveToolTip="True"
+                      ToolTip="{Binding RunSelectionDisabledReason, TargetNullValue='Run Selection (F8). Runs the current selection in the shared PowerShell session, or the current line when nothing is selected.'}">
                 <Button x:Name="RunSelectionButton" Click="RunSelection_Click"
                         help:ContextHelp.Key="Command.RunSelection"
+                        help:ContextHelp.PreserveToolTip="True"
                         IsEnabled="{Binding IsRunAvailable}"
+                        AutomationProperties.HelpText="{Binding RunSelectionDisabledReason}"
+                        ToolTipService.ShowOnDisabled="True"
                         Style="{StaticResource IdeToolbarButtonStyle}"
-                        ToolTip="Run Selection (F8). Runs the current selection in the shared PowerShell session, or the current line when nothing is selected.">
+                        >
                     <StackPanel Orientation="Horizontal">
                         <Viewbox Style="{StaticResource ToolbarIconViewboxStyle}">
                             <Path Data="M 0,2 H 3 V 14 H 0 Z M 5,2 L 15,8 L 5,14 Z"
@@ -506,6 +521,7 @@
                         <TextBlock Text="Run Selection" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                </Grid>
 
                 <Button Command="{Binding StopCommand}"
                         help:ContextHelp.Key="Command.Interrupt"
@@ -523,6 +539,9 @@
                 <Separator Style="{StaticResource IdeToolbarSeparatorStyle}" />
 
                 <!-- Debug group -->
+                <Grid x:Name="DebugToggleTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      ToolTip="Start Debug (F5). Stop Debug (Shift+F5).">
                 <Button x:Name="DebugToggleButton"
                         help:ContextHelp.Key="Command.StartDebug"
                         Click="DebugToggle_Click"
@@ -566,7 +585,11 @@
                         </StackPanel>
                     </Grid>
                 </Button>
+                </Grid>
 
+                <Grid x:Name="ContinueTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      ToolTip="Continue (F5)">
                 <Button x:Name="ContinueButton"
                         help:ContextHelp.Key="Command.ContinueDebug"
                         Click="ContinueDebug_Click"
@@ -581,7 +604,11 @@
                         <TextBlock Text="Continue" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                </Grid>
 
+                <Grid x:Name="StepOverTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      ToolTip="Step Over (F10)">
                 <Button x:Name="StepOverButton"
                         help:ContextHelp.Key="Command.StepOver"
                         Click="StepOver_Click"
@@ -596,7 +623,11 @@
                         <TextBlock Text="Step Over" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                </Grid>
 
+                <Grid x:Name="StepIntoTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      ToolTip="Step Into (F11)">
                 <Button x:Name="StepIntoButton"
                         help:ContextHelp.Key="Command.StepInto"
                         Click="StepInto_Click"
@@ -611,7 +642,11 @@
                         <TextBlock Text="Step Into" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                </Grid>
 
+                <Grid x:Name="StepOutTooltipHost"
+                      Style="{StaticResource IdeToolbarTooltipHostStyle}"
+                      ToolTip="Step Out (Shift+F11)">
                 <Button x:Name="StepOutButton"
                         help:ContextHelp.Key="Command.StepOut"
                         Click="StepOut_Click"
@@ -626,6 +661,7 @@
                         <TextBlock Text="Step Out" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                </Grid>
 
                 <Separator Style="{StaticResource IdeToolbarSeparatorStyle}" />
 
@@ -668,6 +704,13 @@
             <Separator Style="{StaticResource IdeStatusBarSeparatorStyle}" />
             <StatusBarItem help:ContextHelp.Key="Status.General">
                 <TextBlock Text="{Binding StatusText}" />
+            </StatusBarItem>
+            <Separator Style="{StaticResource IdeStatusBarSeparatorStyle}"
+                       Visibility="{Binding IsConsoleInputActive, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            <StatusBarItem Visibility="{Binding IsConsoleInputActive, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           help:ContextHelp.Key="Status.General">
+                <TextBlock Text="{Binding ConsoleInputStatusText}"
+                           ToolTip="Press Ctrl+C in the Console to cancel the unfinished input line." />
             </StatusBarItem>
             <Separator Style="{StaticResource IdeStatusBarSeparatorStyle}"
                        Visibility="{Binding HasSessionRestoreNotice, Converter={StaticResource BooleanToVisibilityConverter}}" />

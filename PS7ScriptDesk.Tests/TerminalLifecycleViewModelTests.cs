@@ -25,6 +25,50 @@ public sealed class TerminalLifecycleViewModelTests
         viewModel.Dispose();
     }
 
+    [Theory]
+    [InlineData("\u001b[A")]
+    [InlineData("\u001bOA")]
+    [InlineData("\u001b[B")]
+    [InlineData("\u001bOB")]
+    public async Task HistoryNavigationInput_DisablesRunAndShowsConsoleEditingCue(string input)
+    {
+        var coordinator = new InteractiveTerminalCoordinator();
+        coordinator.SetState(InteractiveTerminalState.InteractiveIdleAtPrompt, "test-idle");
+        var viewModel = await CreateViewModelAsync(new RecordingLiveConsoleService(), CreateRuntime(), coordinator);
+
+        await viewModel.WriteRawInputAsync(input);
+
+        Assert.Equal(InteractiveTerminalState.InteractiveInputEditing, coordinator.State);
+        Assert.False(coordinator.CanStartEditorExecution);
+        Assert.False(viewModel.IsRunAvailable);
+        Assert.Contains("command is being edited", viewModel.RunDisabledReason, StringComparison.Ordinal);
+        Assert.Contains("Console input active", viewModel.ConsoleInputStatusText, StringComparison.Ordinal);
+        viewModel.Dispose();
+    }
+
+    [Fact]
+    public async Task CtrlCAfterHistoryNavigationWaitsForPromptBeforeReenablingRun()
+    {
+        var console = new RecordingLiveConsoleService();
+        var coordinator = new InteractiveTerminalCoordinator();
+        coordinator.SetState(InteractiveTerminalState.InteractiveIdleAtPrompt, "test-idle");
+        var viewModel = await CreateViewModelAsync(console, CreateRuntime(), coordinator);
+
+        await viewModel.WriteRawInputAsync("\u001b[A");
+        await viewModel.WriteRawInputAsync("\u0003");
+
+        Assert.Equal(InteractiveTerminalState.InteractiveCommandRunning, coordinator.State);
+        Assert.False(viewModel.IsRunAvailable);
+        Assert.Equal(string.Empty, viewModel.ConsoleInputStatusText);
+
+        console.RaisePromptReady(0, "C:\\");
+
+        Assert.Equal(InteractiveTerminalState.InteractiveIdleAtPrompt, coordinator.State);
+        Assert.True(viewModel.IsRunAvailable);
+        Assert.Null(viewModel.RunDisabledReason);
+        viewModel.Dispose();
+    }
+
     [Fact]
     public async Task RendererReadyBeforePromptReadiness_PreservesStartingWaitState()
     {
@@ -97,6 +141,45 @@ public sealed class TerminalLifecycleViewModelTests
         coordinator.SetState(InteractiveTerminalState.InteractiveIdleAtPrompt, "test-idle-again");
         Assert.True(viewModel.IsRunAvailable);
         Assert.True(viewModel.RunCommand.CanExecute(null));
+        viewModel.Dispose();
+    }
+
+    [Fact]
+    public async Task ConsoleEditingExposesReasonAwareTooltipAndStatusCue()
+    {
+        var coordinator = new InteractiveTerminalCoordinator();
+        coordinator.SetState(InteractiveTerminalState.InteractiveIdleAtPrompt, "test-idle");
+        var viewModel = await CreateViewModelAsync(new RecordingLiveConsoleService(), CreateRuntime(), coordinator);
+
+        Assert.True(viewModel.IsRunAvailable);
+        Assert.Null(viewModel.RunDisabledReason);
+        Assert.Equal(string.Empty, viewModel.ConsoleInputStatusText);
+
+        coordinator.SetState(InteractiveTerminalState.InteractiveInputEditing, "test-editing");
+
+        Assert.False(viewModel.IsRunAvailable);
+        Assert.Contains("command is being edited", viewModel.RunDisabledReason, StringComparison.Ordinal);
+        Assert.Contains("Press Ctrl+C", viewModel.RunDisabledReason, StringComparison.Ordinal);
+        Assert.Contains("Console input active", viewModel.ConsoleInputStatusText, StringComparison.Ordinal);
+
+        coordinator.SetState(InteractiveTerminalState.InteractiveIdleAtPrompt, "test-idle-again");
+
+        Assert.True(viewModel.IsRunAvailable);
+        Assert.Null(viewModel.RunDisabledReason);
+        Assert.Equal(string.Empty, viewModel.ConsoleInputStatusText);
+        viewModel.Dispose();
+    }
+
+    [Fact]
+    public async Task OtherDisabledStateDoesNotSuggestCtrlC()
+    {
+        var coordinator = new InteractiveTerminalCoordinator();
+        coordinator.SetState(InteractiveTerminalState.Starting, "test-starting");
+        var viewModel = await CreateViewModelAsync(new RecordingLiveConsoleService(), CreateRuntime(), coordinator);
+
+        Assert.False(viewModel.IsRunAvailable);
+        Assert.DoesNotContain("Press Ctrl+C", viewModel.RunDisabledReason, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, viewModel.ConsoleInputStatusText);
         viewModel.Dispose();
     }
 

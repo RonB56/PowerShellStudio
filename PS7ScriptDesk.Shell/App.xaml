@@ -1206,6 +1206,14 @@
             </Setter>
         </Style>
 
+        <Style x:Key="IdeToolbarTooltipHostStyle" TargetType="Grid">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="IsHitTestVisible" Value="True" />
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="700" />
+            <Setter Property="ToolTipService.ShowDuration" Value="12000" />
+        </Style>
+
         <Style x:Key="IdeToolbarPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource IdeToolbarButtonStyle}">
             <Setter Property="Background" Value="{DynamicResource Theme.Surface.Secondary}" />
             <Setter Property="BorderBrush" Value="{DynamicResource Theme.Border.Subtle}" />

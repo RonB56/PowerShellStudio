@@ -210,6 +210,8 @@ public sealed class MainWindowStructuralPolishTests
         Assert.Contains("x:Key=\"IdeToolbarButtonStyle\"", appXaml, StringComparison.Ordinal);
         Assert.Contains("x:Key=\"IdeToolbarPrimaryButtonStyle\"", appXaml, StringComparison.Ordinal);
         Assert.Contains("x:Key=\"IdeToolbarIconButtonStyle\"", appXaml, StringComparison.Ordinal);
+        Assert.Contains("x:Key=\"IdeToolbarTooltipHostStyle\"", appXaml, StringComparison.Ordinal);
+        Assert.Contains("<Setter Property=\"Background\" Value=\"Transparent\" />", appXaml, StringComparison.Ordinal);
         Assert.Contains("x:Key=\"IdeToolbarSeparatorStyle\"", appXaml, StringComparison.Ordinal);
         Assert.Contains("<Setter Property=\"Padding\" Value=\"6,2\" />", appXaml, StringComparison.Ordinal);
         Assert.Contains("<Setter Property=\"MinHeight\" Value=\"26\" />", appXaml, StringComparison.Ordinal);
@@ -253,8 +255,11 @@ public sealed class MainWindowStructuralPolishTests
         Assert.Contains("ToolTip=\"Save (Ctrl+S)\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip=\"Close Tab (Ctrl+W)\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip=\"Close All Tabs (Ctrl+Shift+W)\"", toolbarXaml, StringComparison.Ordinal);
-        Assert.Contains("ToolTip=\"Run Script (Ctrl+F5)\"", toolbarXaml, StringComparison.Ordinal);
-        Assert.Contains("ToolTip=\"Run Selection (F8).", toolbarXaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTip=\"{Binding RunDisabledReason", toolbarXaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTip=\"{Binding RunSelectionDisabledReason", toolbarXaml, StringComparison.Ordinal);
+        Assert.Equal(4, CountOccurrences(toolbarXaml, "help:ContextHelp.PreserveToolTip=\"True\""));
+        Assert.Equal(7, CountOccurrences(toolbarXaml, "Style=\"{StaticResource IdeToolbarTooltipHostStyle}\""));
+        Assert.Contains("ToolTipService.ShowOnDisabled=\"True\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip=\"Start Debug (F5). Stop Debug (Shift+F5).\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip=\"Continue (F5)\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip=\"Step Over (F10)\"", toolbarXaml, StringComparison.Ordinal);
@@ -291,6 +296,21 @@ public sealed class MainWindowStructuralPolishTests
         Assert.Contains("Text=\"Help\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.Name=\"Close Tab\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.Name=\"Close All Tabs\"", toolbarXaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DisabledToolbarTooltipForensicsAreDeveloperGatedAndObserveOnly()
+    {
+        var loggerCode = ReadRepositoryFile("PS7ScriptDesk.Shell", "Diagnostics", "DisabledToolbarTooltipForensicLogger.cs");
+
+        Assert.Contains("if (_attached || !DeveloperDiagnostics.IsEnabled)", loggerCode, StringComparison.Ordinal);
+        Assert.Contains("ToolTipOpeningEvent", loggerCode, StringComparison.Ordinal);
+        Assert.Contains("DependencyPropertyHelper.GetValueSource", loggerCode, StringComparison.Ordinal);
+        Assert.Contains("VisualTreeHelper.HitTest", loggerCode, StringComparison.Ordinal);
+        Assert.Contains("SHA256.HashData", loggerCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("IsEnabled =", loggerCode, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Command", loggerCode, StringComparison.Ordinal);
+        Assert.DoesNotContain(".Click", loggerCode, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -420,7 +440,8 @@ public sealed class MainWindowStructuralPolishTests
         Assert.Contains("Text=\"Close All\"", toolbarXaml, StringComparison.Ordinal);
 
         Assert.Contains("Click=\"RunSelection_Click\"", toolbarXaml, StringComparison.Ordinal);
-        Assert.Contains("ToolTip=\"Run Selection (F8).", toolbarXaml, StringComparison.Ordinal);
+        Assert.Contains("ToolTip=\"{Binding RunSelectionDisabledReason", toolbarXaml, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.HelpText=\"{Binding RunSelectionDisabledReason}\"", toolbarXaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"Run Selection\"", toolbarXaml, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"Selection\"", toolbarXaml, StringComparison.Ordinal);
 

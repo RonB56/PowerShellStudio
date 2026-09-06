@@ -31,9 +31,38 @@ public sealed class TerminalInputCoordinatorTests
     [InlineData("\u001b[O", "FocusOut")]
     [InlineData("Get-Date", "PrintableText")]
     [InlineData("\u001b[A", "ArrowUp")]
+    [InlineData("\u001bOA", "ArrowUp")]
+    [InlineData("\u001b[B", "ArrowDown")]
+    [InlineData("\u001bOB", "ArrowDown")]
+    [InlineData("\u001b[C", "ArrowRight")]
+    [InlineData("\u001bOC", "ArrowRight")]
+    [InlineData("\u001b[D", "ArrowLeft")]
+    [InlineData("\u001bOD", "ArrowLeft")]
+    [InlineData("\u001b[H", "Home")]
+    [InlineData("\u001b[1~", "Home")]
+    [InlineData("\u001b[F", "End")]
+    [InlineData("\u001b[4~", "End")]
     public void ClassifierUsesExplicitSemanticCategories(string input, string expected)
     {
         Assert.Equal(expected, TerminalInputClassifier.Classify(input));
+    }
+
+    [Theory]
+    [InlineData("\u001b[A")]
+    [InlineData("\u001bOA")]
+    [InlineData("\u001b[B")]
+    [InlineData("\u001bOB")]
+    public void HistoryNavigationInputClaimsConservativeEditableOwnership(string input)
+    {
+        var router = new TerminalInputRouter();
+        using var coordinator = new TerminalInputCoordinator(router);
+        coordinator.BeginSession(11);
+        coordinator.ObservePromptReady(11);
+
+        coordinator.ObserveUserInput(input, 11);
+
+        Assert.False(coordinator.CanAcceptInternalDispatch(11, out var reason));
+        Assert.Contains("unfinished", reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

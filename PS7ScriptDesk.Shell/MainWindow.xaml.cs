@@ -47,6 +47,7 @@ using PS7ScriptDesk.Domain.Models;
 using PS7ScriptDesk.PowerShell.Services;
 using PS7ScriptDesk.Shell.Dialogs;
 using PS7ScriptDesk.Shell.Debug;
+using PS7ScriptDesk.Shell.Diagnostics;
 using PS7ScriptDesk.Shell.Editor;
 using PS7ScriptDesk.Shell.Help;
 using PS7ScriptDesk.Shell.Services;
@@ -416,6 +417,7 @@ namespace PS7ScriptDesk.Shell
             }
 
             InitializeComponent();
+            DisabledToolbarTooltipForensicLogger.Attach(this);
             UpdateAnalyzerSettingsMenu();
             InitializeUiScaleMenu();
             _uiScaleService.ScaleChanged += UiScaleService_ScaleChanged;
@@ -472,6 +474,7 @@ namespace PS7ScriptDesk.Shell
                 ["runIsAvailable"] = viewModel.IsRunAvailable,
                 ["runCommandCanExecute"] = viewModel.RunCommand.CanExecute(null)
             });
+            DisabledToolbarTooltipForensicLogger.CaptureStage(this, "AFTER_DATACONTEXT_ASSIGNMENT");
             DeveloperDiagnostics.LogInfo(
                 "Startup",
                 "MainWindow attached its view model reference before DataContext exposure.",
@@ -7128,6 +7131,7 @@ namespace PS7ScriptDesk.Shell
 
         private void RunButton_IsEnabledChanged(object? sender, EventArgs e)
         {
+            DisabledToolbarTooltipForensicLogger.CaptureStage(this, "RUN_ISENABLED_CHANGED");
             var current = RunButton.IsEnabled;
             StartupEnablementForensicLog.ControlEdge(
                 "RUN_CONTROL_ISENABLED_EDGE",
@@ -7141,6 +7145,7 @@ namespace PS7ScriptDesk.Shell
 
         private void RunSelectionButton_IsEnabledChanged(object? sender, EventArgs e)
         {
+            DisabledToolbarTooltipForensicLogger.CaptureStage(this, "RUN_SELECTION_ISENABLED_CHANGED");
             var current = RunSelectionButton.IsEnabled;
             StartupEnablementForensicLog.ControlEdge(
                 "RUN_SELECTION_CONTROL_ISENABLED_EDGE",

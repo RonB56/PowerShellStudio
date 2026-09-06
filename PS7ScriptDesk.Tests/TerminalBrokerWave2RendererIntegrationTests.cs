@@ -467,7 +467,8 @@ public sealed class TerminalBrokerWave2RendererIntegrationTests
         var rendererReadyBlock = source[rendererReadyIndex..Math.Min(source.Length, rendererReadyIndex + 900)];
 
         Assert.Contains("waiting for backend prompt observation", rendererReadyBlock, StringComparison.Ordinal);
-        Assert.DoesNotContain("InteractiveTerminalState.InteractiveIdleAtPrompt", rendererReadyBlock, StringComparison.Ordinal);
+        Assert.Contains("InteractiveTerminalState.Starting", rendererReadyBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("InteractiveTerminalState.InteractiveIdleAtPrompt,", rendererReadyBlock, StringComparison.Ordinal);
         Assert.Contains("OnTerminalPromptReadyObserved", source, StringComparison.Ordinal);
     }
 

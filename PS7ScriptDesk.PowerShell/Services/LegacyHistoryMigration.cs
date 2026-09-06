@@ -61,6 +61,24 @@ internal static class LegacyHistoryMigration
                     Write-Ps7SdMigrationEvent 'LEGACY_HISTORY_MIGRATION_END' @{ reason = 'HistoryPathMissing' }
                     return
                 }
+                # Serialize ScriptDesk's migration phase across processes that use
+                # the same native PSReadLine history file. Normal PSReadLine I/O
+                # remains native; this only prevents two migrations from racing.
+                $historyMutex = $null
+                $historyMutexAcquired = $false
+                $historyMutexName = 'Local\PS7ScriptDesk-LegacyHistory-' + (Get-Ps7SdSha256 ([Text.Encoding]::UTF8.GetBytes([IO.Path]::GetFullPath($historyPath))))
+                try {
+                    $historyMutex = [Threading.Mutex]::new($false, $historyMutexName)
+                    $historyMutexAcquired = $historyMutex.WaitOne([TimeSpan]::FromSeconds(30))
+                    if (-not $historyMutexAcquired) {
+                        Write-Ps7SdMigrationEvent 'LEGACY_HISTORY_MIGRATION_END' @{ reason = 'MigrationMutexTimeout' }
+                        return
+                    }
+                } catch {
+                    Write-Ps7SdMigrationStageException 'AcquireMigrationMutex' '[Threading.Mutex]::WaitOne' $_
+                    return
+                }
+                try {
                 $root = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'PS7ScriptDesk\Temp\TerminalSnapshots')).TrimEnd('\')
                 $q = [regex]::Escape($root)
                 $psdPattern = "^\s*(?:&|\.)\s+'$q\\psd-[0-9a-f]{32}\.ps1'(?:\s+#PS7SDi)?\s*$"
@@ -119,8 +137,17 @@ internal static class LegacyHistoryMigration
                     $verifyRows = [regex]::Matches($verify, '.*?(?:\r\n|\n|\r|$)') | ForEach-Object Value | Where-Object { $_ -ne '' }
                     if ($verify.Length -ne $finalText.Length -or $verifyRows.Count -ne $expectedFinalLineCount -or @($verifyRows | Where-Object { $_.TrimEnd("`r", "`n") -match $psdPattern -or $_.TrimEnd("`r", "`n") -match $helperPattern }).Count -ne 0) { Write-Ps7SdMigrationEvent 'LEGACY_HISTORY_PERSISTENT_COMMIT' @{ removedCount = 0; finalLineCount = $verifyRows.Count; finalHash = '(none)'; result = 'ABORT_OUTPUT_VALIDATION' }; return }
                     Write-Ps7SdMigrationEvent 'MIGRATION_STAGE_SUCCESS' @{ stage = $stage }
-                    $stage = 'AtomicReplace'; $api = '[IO.File]::Replace'
-                    Write-Ps7SdMigrationEvent 'MIGRATION_STAGE_BEGIN' @{ stage = $stage; api = $api }
+                $stage = 'AtomicReplace'; $api = '[IO.File]::Replace'
+                Write-Ps7SdMigrationEvent 'MIGRATION_STAGE_BEGIN' @{ stage = $stage; api = $api }
+                    # Revalidate immediately before replacement. The mutex closes
+                    # migration-vs-migration races; this check also protects a user
+                    # or native PSReadLine writer that changed the file meanwhile.
+                    $latest = [IO.File]::ReadAllBytes($historyPath)
+                    $latestHash = Get-Ps7SdSha256 $latest
+                    if (-not [string]::Equals($sha, $latestHash, [StringComparison]::OrdinalIgnoreCase)) {
+                        Write-Ps7SdMigrationEvent 'LEGACY_HISTORY_PERSISTENT_COMMIT' @{ removedCount = 0; finalLineCount = $rows.Count; finalHash = $latestHash; result = 'ABORT_SOURCE_CHANGED_BEFORE_REPLACE' }
+                        return
+                    }
                     [IO.File]::Replace($temp, $historyPath, $transactionalBackup, $true)
                     Write-Ps7SdMigrationEvent 'MIGRATION_STAGE_SUCCESS' @{ stage = $stage; transactionalBackupPath = $transactionalBackup }
                 } finally { if ([IO.File]::Exists($temp)) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue } }
@@ -152,6 +179,10 @@ internal static class LegacyHistoryMigration
                         }
                         $result
                     }
+                }
+                } finally {
+                    if ($historyMutexAcquired -and $null -ne $historyMutex) { try { $historyMutex.ReleaseMutex() } catch { } }
+                    if ($null -ne $historyMutex) { $historyMutex.Dispose() }
                 }
             } catch { Write-Ps7SdMigrationStageException $stage $api $_; Write-Ps7SdMigrationEvent 'LEGACY_HISTORY_MIGRATION_FAILED' @{ stage = $stage; reason = $_.Exception.GetType().Name }; Write-Ps7SdMigrationEvent 'LEGACY_HISTORY_MIGRATION_END' @{ reason = 'Exception' } }
         }
