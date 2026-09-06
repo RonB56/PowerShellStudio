@@ -27,13 +27,10 @@ internal static class LegacyHistoryMigration
             try {
                 $__pssdMigrationLogPath = '__PS7SD_MIGRATION_LOG_PATH__'
                 function Write-Ps7SdMigrationEvent([string] $event, [hashtable] $fields) {
-                    try {
-                        $parts = [Collections.Generic.List[string]]::new()
-                        $parts.Add("event=$event")
-                        foreach ($key in $fields.Keys) { $parts.Add("$key=$($fields[$key])") }
-                        $parts.Add("timestamp=$([DateTimeOffset]::UtcNow.ToString('O'))")
-                        [IO.File]::AppendAllText($__pssdMigrationLogPath, (($parts -join ' ') + [Environment]::NewLine))
-                    } catch { }
+                    # Investigation-only migration tracing is disabled in normal
+                    # operation. Keep the event hook so migration behavior remains
+                    # unchanged without creating a placeholder or forensic file.
+                    return
                 }
                 function Write-Ps7SdMigrationStageException([string] $stage, [string] $api, $errorRecord) {
                     try {

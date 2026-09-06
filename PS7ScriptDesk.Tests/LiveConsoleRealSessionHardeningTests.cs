@@ -136,6 +136,88 @@ public sealed class LiveConsoleRealSessionHardeningTests
     }
 
     [Fact]
+    public async Task RealSession_NormalCompletedFileAndFolderWorkHasNoScriptDeskLock()
+    {
+        var runtime = TryFindPwshRuntime();
+        if (runtime is null)
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "PS7SD_LockProbe_" + Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(root, "created-folder");
+        var file = Path.Combine(folder, "created.txt");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            await using var harness = await RealConsoleHarness.StartAsync(runtime);
+            await harness.ExecuteScriptAndWaitAsync(
+                "lock-probe.ps1",
+                $"$folder = New-Item -ItemType Directory -Path {ToPowerShellLiteral(folder)}; [IO.File]::WriteAllText({ToPowerShellLiteral(file)}, 'normal-completion'); Get-Item $file; Get-Item $folder",
+                executeInCurrentScope: false);
+
+            Assert.True(File.Exists(file));
+            using (var exclusive = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.Equal("normal-completion", new StreamReader(exclusive, leaveOpen: true).ReadToEnd());
+            }
+
+            Directory.Delete(root, recursive: true);
+            Assert.False(Directory.Exists(root));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RealSession_IntentionallyRetainedFileStreamRemainsUserOwned()
+    {
+        var runtime = TryFindPwshRuntime();
+        if (runtime is null)
+        {
+            return;
+        }
+
+        var root = Path.Combine(Path.GetTempPath(), "PS7SD_LockProbe_" + Guid.NewGuid().ToString("N"));
+        var file = Path.Combine(root, "intentional.txt");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            await using var harness = await RealConsoleHarness.StartAsync(runtime);
+            await harness.ExecuteScriptAndWaitAsync(
+                "intentional-lock.ps1",
+                $"[IO.File]::WriteAllText({ToPowerShellLiteral(file)}, 'intentional'); $Global:PS7SD_LockProbe = [IO.File]::Open({ToPowerShellLiteral(file)}, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)",
+                executeInCurrentScope: true);
+
+            Assert.ThrowsAny<IOException>(() =>
+            {
+                using var lockedProbe = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            });
+
+            await harness.ExecuteScriptAndWaitAsync(
+                "release-intentional-lock.ps1",
+                "$Global:PS7SD_LockProbe.Dispose(); Remove-Variable PS7SD_LockProbe -Scope Global",
+                executeInCurrentScope: true);
+
+            using var released = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RealSession_ReadHostAcceptsTerminalInputAndCompletes()
     {
         var runtime = TryFindPwshRuntime();

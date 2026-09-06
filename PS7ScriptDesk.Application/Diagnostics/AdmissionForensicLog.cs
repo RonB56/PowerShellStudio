@@ -13,17 +13,14 @@ public static class AdmissionForensicLog
     private static int _enabled;
     private static int _terminalGeneration;
 
-    public static bool IsEnabled => Volatile.Read(ref _enabled) != 0;
+    public static bool IsEnabled => Volatile.Read(ref _enabled) != 0 && DeveloperDiagnostics.IsEnabled;
     public static int TerminalGeneration => Volatile.Read(ref _terminalGeneration);
 
     public static void Start()
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
-            File.WriteAllText(LogPath, string.Empty, Encoding.UTF8);
             Volatile.Write(ref _enabled, 1);
-            Write("FORENSIC_GUI_START", new Dictionary<string, object?> { ["logPath"] = LogPath });
         }
         catch { }
     }

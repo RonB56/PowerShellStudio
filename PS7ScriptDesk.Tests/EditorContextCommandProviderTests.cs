@@ -95,17 +95,47 @@ public sealed class EditorContextCommandProviderTests
             var command = Definition("future", "Future Command", "Future", "Ctrl+Alt+F", () => true, () => executions++,
                 CommandSurfaces.EditorContextMenu);
             var registry = new EditorCommandRegistry(new[] { command });
-            var parent = new MenuItem { Header = "Available Commands" };
+            var selection = new MenuItem { Header = "Selection" };
+            var transform = new MenuItem { Header = "Transform" };
+            var more = new MenuItem { Header = "More" };
+            command = command with { ContextGroup = "Transform", ContextSubgroup = "Whitespace", ContextOrder = 1 };
+            registry = new EditorCommandRegistry(new[] { command });
 
-            var commands = EditorContextMenuBuilder.Populate(parent, registry, true, selected => selected.Execute());
-            var item = Assert.IsType<MenuItem>(Assert.Single(parent.Items));
+            var commands = EditorContextMenuBuilder.Populate(selection, transform, more, registry, true, selected => selected.Execute());
+            var submenu = Assert.IsType<MenuItem>(Assert.Single(transform.Items));
+            var item = Assert.IsType<MenuItem>(Assert.Single(submenu.Items));
 
             Assert.Single(commands);
-            Assert.Equal("Future    Future Command", item.Header);
+            Assert.Equal("Whitespace", submenu.Header);
+            Assert.Equal("Future Command", item.Header);
             Assert.Equal("Ctrl+Alt+F", item.InputGestureText);
             Assert.Same(command, item.Tag);
             item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.Equal(1, executions);
+            Assert.Equal(Visibility.Collapsed, selection.Visibility);
+            Assert.Equal(Visibility.Collapsed, more.Visibility);
+        });
+    }
+
+    [Fact]
+    public void BuilderOmitsEmptyGroupsAndOrdersCommandsDeterministically()
+    {
+        RunOnStaThread(() =>
+        {
+            var selection = new MenuItem { Header = "Selection" };
+            var transform = new MenuItem { Header = "Transform" };
+            var more = new MenuItem { Header = "More" };
+            var second = Definition("second", "Second", "Editor", string.Empty, () => true, () => { }, CommandSurfaces.EditorContextMenu)
+                with { ContextGroup = "Selection", ContextOrder = 2 };
+            var first = Definition("first", "First", "Editor", string.Empty, () => true, () => { }, CommandSurfaces.EditorContextMenu)
+                with { ContextGroup = "Selection", ContextOrder = 1 };
+
+            EditorContextMenuBuilder.Populate(selection, transform, more,
+                new EditorCommandRegistry(new[] { second, first }), true, _ => { });
+
+            Assert.Equal(new object[] { "First", "Second" }, selection.Items.Cast<MenuItem>().Select(item => item.Header));
+            Assert.Equal(Visibility.Collapsed, transform.Visibility);
+            Assert.Equal(Visibility.Collapsed, more.Visibility);
         });
     }
 

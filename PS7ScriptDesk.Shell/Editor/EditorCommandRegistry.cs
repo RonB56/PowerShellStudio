@@ -22,7 +22,14 @@ public sealed record EditorCommandDefinition(
     Func<bool> CanExecute,
     Action Execute,
     CommandSurfaces Surfaces = CommandSurfaces.CommandPalette,
-    KeyGesture? ShortcutGesture = null);
+    KeyGesture? ShortcutGesture = null)
+{
+    public string? ContextGroup { get; init; }
+
+    public string? ContextSubgroup { get; init; }
+
+    public int ContextOrder { get; init; }
+}
 
 public sealed class EditorCommandRegistry
 {

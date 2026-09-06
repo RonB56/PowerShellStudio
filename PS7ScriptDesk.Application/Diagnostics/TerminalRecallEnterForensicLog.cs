@@ -46,6 +46,11 @@ public static class TerminalRecallEnterForensicLog
 
     private static void Write(string eventName, IReadOnlyDictionary<string, object?> fields)
     {
+        if (!DeveloperDiagnostics.IsEnabled)
+        {
+            return;
+        }
+
         try
         {
             var parts = new List<string> { $"event={eventName}" };

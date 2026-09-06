@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,43 +10,106 @@ namespace PS7ScriptDesk.Shell.Editor;
 public static class EditorContextMenuBuilder
 {
     public static IReadOnlyList<EditorCommandDefinition> Populate(
-        WpfMenuItem availableMenu,
+        WpfMenuItem selectionMenu,
+        WpfMenuItem transformMenu,
+        WpfMenuItem otherMenu,
         EditorCommandRegistry registry,
         bool hasNonEmptySelection,
         Action<EditorCommandDefinition> execute)
     {
-        ArgumentNullException.ThrowIfNull(availableMenu);
+        ArgumentNullException.ThrowIfNull(selectionMenu);
+        ArgumentNullException.ThrowIfNull(transformMenu);
+        ArgumentNullException.ThrowIfNull(otherMenu);
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(execute);
 
-        availableMenu.Items.Clear();
+        selectionMenu.Items.Clear();
+        transformMenu.Items.Clear();
+        otherMenu.Items.Clear();
         var commands = EditorContextCommandProvider.GetAvailableCommands(registry, hasNonEmptySelection);
-        availableMenu.Visibility = commands.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-        string? previousCategory = null;
-        foreach (var group in commands.GroupBy(command => command.Category, StringComparer.OrdinalIgnoreCase))
+        var menus = new Dictionary<string, WpfMenuItem>(StringComparer.OrdinalIgnoreCase)
         {
-            if (previousCategory is not null)
+            ["Selection"] = selectionMenu,
+            ["Transform"] = transformMenu,
+            ["More"] = otherMenu
+        };
+
+        foreach (var menuGroup in commands
+            .GroupBy(command => command.ContextGroup ?? "More", StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => GetGroupOrder(group.Key))
+            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!menus.TryGetValue(menuGroup.Key, out var parentMenu))
             {
-                availableMenu.Items.Add(new Separator());
+                parentMenu = otherMenu;
             }
 
-            foreach (var command in group)
+            var groupedCommands = menuGroup
+                .GroupBy(command => command.ContextSubgroup, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(group => group.Min(command => command.ContextOrder))
+                .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            foreach (var subgroup in groupedCommands)
             {
-                var menuItem = new WpfMenuItem
+                if (subgroup.Key is not null)
                 {
-                    Header = string.IsNullOrWhiteSpace(command.Category)
-                        ? command.DisplayName
-                        : $"{command.Category}    {command.DisplayName}",
-                    InputGestureText = command.ShortcutText,
-                    Tag = command
-                };
-                menuItem.Click += (_, _) => execute(command);
-                availableMenu.Items.Add(menuItem);
-            }
+                    var submenu = new WpfMenuItem { Header = subgroup.Key };
+                    foreach (var command in OrderCommands(subgroup))
+                    {
+                        submenu.Items.Add(CreateCommandMenuItem(command, execute));
+                    }
 
-            previousCategory = group.Key;
+                    if (submenu.Items.Count > 0)
+                    {
+                        AddSeparatorIfNeeded(parentMenu);
+                        parentMenu.Items.Add(submenu);
+                    }
+                }
+                else
+                {
+                    foreach (var command in OrderCommands(subgroup))
+                    {
+                        parentMenu.Items.Add(CreateCommandMenuItem(command, execute));
+                    }
+                }
+            }
         }
 
+        selectionMenu.Visibility = selectionMenu.Items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        transformMenu.Visibility = transformMenu.Items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        otherMenu.Visibility = otherMenu.Items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         return commands;
     }
+
+    private static IEnumerable<EditorCommandDefinition> OrderCommands(IEnumerable<EditorCommandDefinition> commands) =>
+        commands.OrderBy(command => command.ContextOrder)
+            .ThenBy(command => command.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(command => command.Id, StringComparer.OrdinalIgnoreCase);
+
+    private static WpfMenuItem CreateCommandMenuItem(EditorCommandDefinition command, Action<EditorCommandDefinition> execute)
+    {
+        var menuItem = new WpfMenuItem
+        {
+            Header = command.DisplayName,
+            InputGestureText = command.ShortcutText,
+            Tag = command
+        };
+        menuItem.Click += (_, _) => execute(command);
+        return menuItem;
+    }
+
+    private static void AddSeparatorIfNeeded(WpfMenuItem menu)
+    {
+        if (menu.Items.Count > 0 && menu.Items[^1] is not Separator)
+        {
+            menu.Items.Add(new Separator());
+        }
+    }
+
+    private static int GetGroupOrder(string group) => group switch
+    {
+        "Selection" => 0,
+        "Transform" => 1,
+        _ => 2
+    };
 }

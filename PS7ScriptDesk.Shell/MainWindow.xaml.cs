@@ -2962,24 +2962,31 @@ namespace PS7ScriptDesk.Shell
                 return;
             }
 
-            var availableMenu = contextMenu.Items
-                .OfType<WpfMenuItem>()
-                .FirstOrDefault(item => string.Equals(item.Header as string, "Available Commands", StringComparison.Ordinal));
-            if (availableMenu is null)
+            var topLevelMenus = contextMenu.Items.OfType<WpfMenuItem>().ToDictionary(
+                item => item.Header as string ?? string.Empty,
+                StringComparer.Ordinal);
+            if (!topLevelMenus.TryGetValue("Selection", out var selectionMenu) ||
+                !topLevelMenus.TryGetValue("Transform", out var transformMenu) ||
+                !topLevelMenus.TryGetValue("More", out var otherMenu))
             {
                 return;
             }
 
             var registry = CreateEditorCommandRegistry(editor);
             var commands = EditorContextMenuBuilder.Populate(
-                availableMenu,
+                selectionMenu,
+                transformMenu,
+                otherMenu,
                 registry,
                 editor.SelectionLength > 0,
                 command => ExecuteEditorContextCommand(editor, command));
 
-            DeveloperDiagnostics.LogInfo("EditorProductivity", "Available Commands context submenu rebuilt.", new Dictionary<string, object?>
+            DeveloperDiagnostics.LogInfo("EditorProductivity", "Editor context menu hierarchy rebuilt.", new Dictionary<string, object?>
             {
                 ["commandCount"] = commands.Count,
+                ["selectionMenuVisible"] = selectionMenu.Visibility == Visibility.Visible,
+                ["transformMenuVisible"] = transformMenu.Visibility == Visibility.Visible,
+                ["otherMenuVisible"] = otherMenu.Visibility == Visibility.Visible,
                 ["selectionLength"] = editor.SelectionLength,
                 ["editorReadOnly"] = editor.IsReadOnly
             });
@@ -2992,7 +2999,7 @@ namespace PS7ScriptDesk.Shell
                 return;
             }
 
-            DeveloperDiagnostics.LogUserAction("EditorProductivity", "ContextCommandInvoked", "Available Commands entry invoked.", new Dictionary<string, object?>
+            DeveloperDiagnostics.LogUserAction("EditorProductivity", "ContextCommandInvoked", "Organized editor context command invoked.", new Dictionary<string, object?>
             {
                 ["commandId"] = command.Id,
                 ["selectionLength"] = editor.SelectionLength
@@ -3107,8 +3114,13 @@ namespace PS7ScriptDesk.Shell
             };
             // All current editor productivity commands are valid on both command surfaces.
             // Future registry entries can opt out by retaining the default palette-only surface.
-            return new EditorCommandRegistry(commands.Select(command => command with
+            return new EditorCommandRegistry(commands.Select((command, index) => command with
             {
+                ContextGroup = command.Id.StartsWith("transform.", StringComparison.OrdinalIgnoreCase)
+                    ? "Transform"
+                    : command.Id.StartsWith("diagnostics.", StringComparison.OrdinalIgnoreCase) ? "More" : "Selection",
+                ContextSubgroup = GetEditorContextSubgroup(command.Id),
+                ContextOrder = index,
                 Surfaces = command.Surfaces == CommandSurfaces.CommandPalette &&
                            command.Id is not "transform.trimDocumentTrailingWhitespace" and
                            not "transform.convertToCrlf" and
@@ -3117,6 +3129,26 @@ namespace PS7ScriptDesk.Shell
                     : command.Surfaces
             }));
         }
+
+        private static string? GetEditorContextSubgroup(string commandId) => commandId switch
+        {
+            "transform.sortIgnoreCaseAsc" or "transform.sortIgnoreCaseDesc" or
+            "transform.sortByLength" or "transform.uniqueSort" or "transform.sortAsc" or
+            "transform.sortDesc" or "transform.removeDuplicates" or "transform.reverse" => "Sort Lines",
+            "transform.tabsToSpaces" or "transform.spacesToTabs" or "transform.joinLines" or
+            "transform.collapseBlankLines" or "transform.trimLines" or "transform.trimTrailing" or
+            "transform.removeBlank" => "Whitespace",
+            "transform.urlEncode" or "transform.urlDecode" or "transform.base64Encode" or
+            "transform.base64Decode" => "Encoding",
+            "transform.jsonPrettyPrint" or "transform.jsonMinify" => "JSON",
+            "transform.convertToCrlf" or "transform.convertToLf" => "Line Endings",
+            "transform.listToPowerShellArray" or "transform.powerShellArrayToList" or
+            "transform.prefix" or "transform.suffix" or "transform.quoteSingle" or
+            "transform.quoteDouble" or "transform.addComma" or "transform.removeComma" or
+            "transform.addLineNumbers" or "transform.removeLineNumbers" => "PowerShell",
+            "transform.upper" or "transform.lower" or "transform.title" => "Text Case",
+            _ => null
+        };
 
         private void SelectCurrentLine(TextEditor editor)
         {

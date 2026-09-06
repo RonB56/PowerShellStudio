@@ -17,16 +17,13 @@ public static class StartupEnablementForensicLog
     private static bool? _lastRunEnabled;
     private static string _lastFailingFactors = "(unknown)";
 
-    public static bool IsEnabled => Volatile.Read(ref _enabled) != 0;
+    public static bool IsEnabled => Volatile.Read(ref _enabled) != 0 && DeveloperDiagnostics.IsEnabled;
 
     public static void Start()
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
-            File.WriteAllText(LogPath, string.Empty, Encoding.UTF8);
             Volatile.Write(ref _enabled, 1);
-            Write("APP_START", BuildIdentity());
         }
         catch { }
     }

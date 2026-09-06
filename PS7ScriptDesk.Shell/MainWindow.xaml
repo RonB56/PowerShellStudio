@@ -1286,13 +1286,6 @@
                                                                   InputGestureText="Ctrl+V"
                                                                   Click="EditorPaste_Click" />
                                                         <Separator />
-                                                        <MenuItem x:Name="AvailableCommandsMenu"
-                                                                  Header="Available Commands" />
-                                                        <MenuItem Header="Select All"
-                                                                  help:ContextHelp.Key="Editor.Surface"
-                                                                  InputGestureText="Ctrl+A"
-                                                                  Click="EditorSelectAll_Click" />
-                                                        <Separator />
                                                         <MenuItem Header="Run Selection"
                                                                   help:ContextHelp.Key="Command.RunSelection"
                                                                   InputGestureText="F8"
@@ -1303,6 +1296,10 @@
                                                                   InputGestureText="F9"
                                                                   Click="ToggleBreakpoint_Click" />
                                                         <Separator />
+                                                        <MenuItem Header="Selection" />
+                                                        <MenuItem Header="Transform" />
+                                                        <MenuItem Header="More" />
+                                                        <Separator />
                                                         <MenuItem Header="Find"
                                                                   help:ContextHelp.Key="Command.Find"
                                                                   InputGestureText="Ctrl+F"
@@ -1311,6 +1308,11 @@
                                                                   help:ContextHelp.Key="Command.Replace"
                                                                   InputGestureText="Ctrl+H"
                                                                   Click="Replace_Click" />
+                                                        <Separator />
+                                                        <MenuItem Header="Select All"
+                                                                  help:ContextHelp.Key="Editor.Surface"
+                                                                  InputGestureText="Ctrl+A"
+                                                                  Click="EditorSelectAll_Click" />
                                                     </ContextMenu>
                                                 </avalonedit:TextEditor.ContextMenu>
                                             </avalonedit:TextEditor>
